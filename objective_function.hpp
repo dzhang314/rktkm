@@ -14,7 +14,7 @@ void objective_function(mpfr_t f, mpfr_t *x, mpfr_prec_t p, mpfr_rnd_t r);
 void objective_function_partial(mpfr_t f_du, mpfr_t *x, std::size_t i,
                                 mpfr_prec_t p, mpfr_rnd_t r);
 
-void objective_gradient(mpfr_t *dst, std::size_t n,
-                        mpfr_t *x, mpfr_prec_t prec, mpfr_rnd_t rnd);
+void objective_gradient(mpfr_t *dst, mpfr_t *x,
+                        mpfr_prec_t prec, mpfr_rnd_t rnd);
 
 #endif // RKTOOLS_OBJECTIVE_FUNCTION_HPP

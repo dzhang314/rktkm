@@ -3,96 +3,22 @@
 
 // C++ standard library headers
 #include <algorithm>  // for std::generate
-#include <cstdint>    // for std::uint_fast64_t
 #include <cstdlib>    // for std::exit
 #include <fstream>    // for std::ifstream, std::ofstream
 #include <functional> // for std::ref
 #include <iomanip>    // for std::setw, std::setfill
-#include <ios>        // for std::dec, std::hex
 #include <iostream>   // for std::cout
 #include <iterator>   // for std::begin, std::end
 #include <limits>     // for std::numeric_limits
 #include <random>     // for std::uniform_real_distribution et al.
-#include <sstream>    // for std::ostringstream
-#include <string>     // for std::string
 #include <utility>    // for std::swap
 
 // RKTK headers
 #include "objective_function.hpp"
-#include "linalg_subroutines.hpp"
 #include "bfgs_subroutines.hpp"
-
-static inline bool is_dec_digit(char c) { return ('0' <= c) && (c <= '9'); }
-
-static inline bool is_hex_digit(char c) {
-    return (('0' <= c) && (c <= '9'))
-           || (('a' <= c) && (c <= 'f'))
-           || (('A' <= c) && (c <= 'F'));
-}
-
-static inline bool is_dec_substr(const std::string &str,
-                                 std::string::size_type begin,
-                                 std::string::size_type end) {
-    for (std::string::size_type i = begin; i < end; ++i) {
-        if (!is_dec_digit(str[i])) { return false; }
-    }
-    return true;
-}
-
-static inline bool is_hex_substr(const std::string &str,
-                                 std::string::size_type begin,
-                                 std::string::size_type end) {
-    for (std::string::size_type i = begin; i < end; ++i) {
-        if (!is_hex_digit(str[i])) { return false; }
-    }
-    return true;
-}
-
-static inline bool is_rktk_filename(const std::string &filename) {
-    if (filename.size() != 68) { return false; }
-    if (!is_dec_substr(filename, 0, 4)) { return false; }
-    if (filename[4] != '-') { return false; }
-    if (!is_dec_substr(filename, 5, 9)) { return false; }
-    if (filename[9] != '-') { return false; }
-    if (filename[10] != 'R') { return false; }
-    if (filename[11] != 'K') { return false; }
-    if (filename[12] != 'T') { return false; }
-    if (filename[13] != 'K') { return false; }
-    if (filename[14] != '-') { return false; }
-    if (!is_hex_substr(filename, 15, 23)) { return false; }
-    if (filename[23] != '-') { return false; }
-    if (!is_hex_substr(filename, 24, 28)) { return false; }
-    if (filename[28] != '-') { return false; }
-    if (!is_hex_substr(filename, 29, 33)) { return false; }
-    if (filename[33] != '-') { return false; }
-    if (!is_hex_substr(filename, 34, 38)) { return false; }
-    if (filename[38] != '-') { return false; }
-    if (!is_hex_substr(filename, 39, 51)) { return false; }
-    if (filename[51] != '-') { return false; }
-    if (!is_dec_substr(filename, 52, 64)) { return false; }
-    if (filename[64] != '.') { return false; }
-    if (filename[65] != 't') { return false; }
-    if (filename[66] != 'x') { return false; }
-    return (filename[67] == 't');
-}
-
-static inline std::size_t dec_substr_to_int(const std::string &str,
-                                            std::string::size_type begin,
-                                            std::string::size_type end) {
-    std::istringstream substr_stream(str.substr(begin, end - begin));
-    std::size_t result;
-    substr_stream >> std::dec >> result;
-    return result;
-}
-
-static inline std::uint_fast64_t hex_substr_to_int(const std::string &str,
-                                                   std::string::size_type begin,
-                                                   std::string::size_type end) {
-    std::istringstream substr_stream(str.substr(begin, end - begin));
-    std::uint_fast64_t result;
-    substr_stream >> std::hex >> result;
-    return result;
-}
+#include "FilenameHelpers.hpp"
+#include "MPFRMatrix.hpp"
+#include "MPFRVector.hpp"
 
 static inline void nan_check(const char *msg) {
     if (mpfr_nanflag_p()) {
@@ -104,67 +30,56 @@ static inline void nan_check(const char *msg) {
 
 class BFGSOptimizer {
 
-    typedef std::numeric_limits<std::uint_fast64_t> uint_fast64_limits;
+    typedef std::numeric_limits<std::uint64_t> uint64_limits;
 
 private: // ======================================================= DATA MEMBERS
 
-    std::size_t n;
     const mpfr_prec_t prec;
     const mpfr_rnd_t rnd;
 
-    mpfr_t *__restrict__ x = nullptr;
-    mpfr_t *__restrict__ x_new = nullptr;
+    rktk::MPFRVector x;
+    rktk::MPFRVector x_new;
     mpfr_t x_norm;
     mpfr_t x_new_norm;
 
     mpfr_t func;
     mpfr_t func_new;
 
-    mpfr_t *__restrict__ grad = nullptr;
-    mpfr_t *__restrict__ grad_new = nullptr;
+    rktk::MPFRVector grad;
+    rktk::MPFRVector grad_new;
     mpfr_t grad_norm;
     mpfr_t grad_new_norm;
-    mpfr_t *__restrict__ const grad_delta = nullptr;
+    rktk::MPFRVector grad_delta;
 
     mpfr_t step_size;
     mpfr_t step_size_new;
-    mpfr_t *__restrict__ const step_dir = nullptr;
+    rktk::MPFRVector step_dir;
 
-    mpfr_t *__restrict__ const hess_inv = nullptr;
+    rktk::MPFRMatrix hess_inv;
 
     std::size_t iter_count = std::numeric_limits<std::size_t>::max();
 
-    std::uint_fast64_t uuid_seg0 = uint_fast64_limits::max();
-    std::uint_fast64_t uuid_seg1 = uint_fast64_limits::max();
-    std::uint_fast64_t uuid_seg2 = uint_fast64_limits::max();
-    std::uint_fast64_t uuid_seg3 = uint_fast64_limits::max();
-    std::uint_fast64_t uuid_seg4 = uint_fast64_limits::max();
+    std::uint64_t uuid_seg0 = uint64_limits::max();
+    std::uint64_t uuid_seg1 = uint64_limits::max();
+    std::uint64_t uuid_seg2 = uint64_limits::max();
+    std::uint64_t uuid_seg3 = uint64_limits::max();
+    std::uint64_t uuid_seg4 = uint64_limits::max();
 
 public: // ======================================================== CONSTRUCTORS
 
-    explicit BFGSOptimizer(std::size_t num_variables,
-                           mpfr_prec_t numeric_precision,
+    explicit BFGSOptimizer(mpfr_prec_t numeric_precision,
                            mpfr_rnd_t rounding_mode) :
-            n(num_variables), prec(numeric_precision), rnd(rounding_mode),
-            x(new mpfr_t[n]), x_new(new mpfr_t[n]),
-            grad(new mpfr_t[n]), grad_new(new mpfr_t[n]),
-            grad_delta(new mpfr_t[n]), step_dir(new mpfr_t[n]),
-            hess_inv(new mpfr_t[n * n]) {
-        for (std::size_t i = 0; i < n; ++i) mpfr_init2(x[i], prec);
-        for (std::size_t i = 0; i < n; ++i) mpfr_init2(x_new[i], prec);
+            prec(numeric_precision), rnd(rounding_mode),
+            x(prec), x_new(prec), grad(prec), grad_new(prec),
+            grad_delta(prec), step_dir(prec), hess_inv(prec) {
         mpfr_init2(x_norm, prec);
         mpfr_init2(x_new_norm, prec);
         mpfr_init2(func, prec);
         mpfr_init2(func_new, prec);
-        for (std::size_t i = 0; i < n; ++i) mpfr_init2(grad[i], prec);
-        for (std::size_t i = 0; i < n; ++i) mpfr_init2(grad_new[i], prec);
         mpfr_init2(grad_norm, prec);
         mpfr_init2(grad_new_norm, prec);
-        for (std::size_t i = 0; i < n; ++i) mpfr_init2(grad_delta[i], prec);
         mpfr_init2(step_size, prec);
         mpfr_init2(step_size_new, prec);
-        for (std::size_t i = 0; i < n; ++i) mpfr_init2(step_dir[i], prec);
-        for (std::size_t i = 0; i < n * n; ++i) mpfr_init2(hess_inv[i], prec);
     }
 
     // explicitly disallow copy construction
@@ -176,49 +91,35 @@ public: // ======================================================== CONSTRUCTORS
 public: // ========================================================== DESTRUCTOR
 
     ~BFGSOptimizer() {
-        for (std::size_t i = 0; i < n; ++i) mpfr_clear(x[i]);
-        delete[] x;
-        for (std::size_t i = 0; i < n; ++i) mpfr_clear(x_new[i]);
-        delete[] x_new;
         mpfr_clear(x_norm);
         mpfr_clear(x_new_norm);
         mpfr_clear(func);
         mpfr_clear(func_new);
-        for (std::size_t i = 0; i < n; ++i) mpfr_clear(grad[i]);
-        delete[] grad;
-        for (std::size_t i = 0; i < n; ++i) mpfr_clear(grad_new[i]);
-        delete[] grad_new;
         mpfr_clear(grad_norm);
         mpfr_clear(grad_new_norm);
-        for (std::size_t i = 0; i < n; ++i) mpfr_clear(grad_delta[i]);
-        delete[] grad_delta;
         mpfr_clear(step_size);
         mpfr_clear(step_size_new);
-        for (std::size_t i = 0; i < n; ++i) mpfr_clear(step_dir[i]);
-        delete[] step_dir;
-        for (std::size_t i = 0; i < n * n; ++i) mpfr_clear(hess_inv[i]);
-        delete[] hess_inv;
     }
 
 public: // ======================================================== INITIALIZERS
 
     void initialize_random() {
         nan_check("before workspace initialization");
-        std::uint_fast64_t seed[std::mt19937_64::state_size];
+        std::uint64_t seed[std::mt19937_64::state_size];
         std::random_device seed_source;
         std::generate(std::begin(seed), std::end(seed), std::ref(seed_source));
         std::seed_seq seed_sequence(std::begin(seed), std::end(seed));
         std::mt19937_64 random_engine(seed_sequence);
         std::uniform_real_distribution<long double> unif(0.0L, 1.0L);
-        for (std::size_t i = 0; i < n; ++i) {
+        for (std::size_t i = 0; i < NUM_VARS; ++i) {
             mpfr_set_ld(x[i], unif(random_engine), rnd);
         }
-        l2_norm(x_norm, n, x, rnd);
-        objective_function(func, x, prec, rnd);
-        objective_gradient(grad, n, x, prec, rnd);
-        l2_norm(grad_norm, n, grad, rnd);
+        x.norm(x_norm, rnd);
+        objective_function(func, x.data(), prec, rnd);
+        objective_gradient(grad.data(), x.data(), prec, rnd);
+        grad.norm(grad_norm, rnd);
         mpfr_set_zero(step_size, 0);
-        identity_matrix(hess_inv, n, rnd);
+        hess_inv.set_identity_matrix();
         iter_count = 0;
         uuid_seg0 = random_engine() & 0xFFFFFFFF;
         uuid_seg1 = random_engine() & 0xFFFF;
@@ -236,7 +137,7 @@ public: // ======================================================== INITIALIZERS
             std::exit(EXIT_FAILURE);
         }
         std::cout << "Successfully opened input file. Reading..." << std::endl;
-        for (std::size_t i = 0; i < n; ++i) {
+        for (std::size_t i = 0; i < NUM_VARS; ++i) {
             if (mpfr_inp_str(x[i], input_file, 10, rnd) == 0) {
                 std::cout << "ERROR: Could not read input file entry at index "
                           << i << "." << std::endl;
@@ -245,12 +146,12 @@ public: // ======================================================== INITIALIZERS
         }
         std::fclose(input_file);
         std::cout << "Successfully read input file." << std::endl;
-        l2_norm(x_norm, n, x, rnd);
-        objective_function(func, x, prec, rnd);
-        objective_gradient(grad, n, x, prec, rnd);
-        l2_norm(grad_norm, n, grad, rnd);
+        x.norm(x_norm, rnd);
+        objective_function(func, x.data(), prec, rnd);
+        objective_gradient(grad.data(), x.data(), prec, rnd);
+        grad.norm(grad_norm, rnd);
         mpfr_set_zero(step_size, 0);
-        identity_matrix(hess_inv, n, rnd);
+        hess_inv.set_identity_matrix();
         if (is_rktk_filename(filename)) {
             iter_count = dec_substr_to_int(filename, 52, 64);
             uuid_seg0 = hex_substr_to_int(filename, 15, 23);
@@ -260,7 +161,7 @@ public: // ======================================================== INITIALIZERS
             uuid_seg4 = hex_substr_to_int(filename, 39, 51);
         } else {
             iter_count = 0;
-            std::uint_fast64_t seed[std::mt19937_64::state_size];
+            std::uint64_t seed[std::mt19937_64::state_size];
             std::random_device seed_source;
             std::generate(std::begin(seed), std::end(seed),
                           std::ref(seed_source));
@@ -321,7 +222,7 @@ public: // =========================================================== ACCESSORS
         filename << std::setw(12) << iter_count << ".txt";
         std::string filename_string(filename.str());
         std::FILE *output_file = std::fopen(filename_string.c_str(), "w+");
-        for (std::size_t i = 0; i < n; ++i) {
+        for (std::size_t i = 0; i < NUM_VARS; ++i) {
             mpfr_fprintf(output_file, "%+.*RNe\n", print_precision, x[i]);
         }
         mpfr_fprintf(output_file, "\n");
@@ -349,17 +250,13 @@ public: // ============================================================ MUTATORS
         // Compute a quasi-Newton step direction by multiplying the approximate
         // inverse Hessian matrix by the gradient vector. Negate the result to
         // obtain a direction of local decrease (rather than increase).
-        matrix_vector_multiply(step_dir, n, hess_inv, grad, rnd);
+        step_dir.set_matrix_vector_multiply(hess_inv, grad, rnd);
         nan_check("during calculation of BFGS step direction");
         // Normalize the step direction to ensure consistency of step sizes.
-        l2_norm(func_new, n, step_dir, rnd);
-        mpfr_si_div(func_new, -1, func_new, rnd);
-        for (std::size_t i = 0; i < n; ++i) {
-            mpfr_mul(step_dir[i], step_dir[i], func_new, rnd);
-        }
+        step_dir.negate_and_normalize(func_new, rnd);
         nan_check("during normalization of BFGS step direction");
         // Compute a near-optimal step size via quadratic line search.
-        quadratic_line_search(step_size_new, x_new, grad_new, n,
+        quadratic_line_search(step_size_new, x_new, grad_new,
                               x, func, step_size, step_dir, prec, rnd);
         nan_check("during quadratic line search");
         after_line_search:
@@ -368,43 +265,33 @@ public: // ============================================================ MUTATORS
             std::cout << "NOTICE: Optimal step size reduced to zero. "
                     "Resetting approximate inverse Hessian matrix to the "
                     "identity matrix and re-trying line search." << std::endl;
-            identity_matrix(hess_inv, n, rnd);
-            matrix_vector_multiply(step_dir, n, hess_inv, grad, rnd);
-            l2_norm(func_new, n, step_dir, rnd);
-            mpfr_si_div(func_new, -1, func_new, rnd);
-            for (std::size_t i = 0; i < n; ++i) {
-                mpfr_mul(step_dir[i], step_dir[i], func_new, rnd);
-            }
-            quadratic_line_search(step_size_new, x_new, grad_new, n,
+            hess_inv.set_identity_matrix();
+            step_dir.set_matrix_vector_multiply(hess_inv, grad, rnd);
+            step_dir.negate_and_normalize(func_new, rnd);
+            quadratic_line_search(step_size_new, x_new, grad_new,
                                   x, func, step_size, step_dir, prec, rnd);
             if (mpfr_zero_p(step_size_new)) {
                 std::cout << "NOTICE: Optimal step size reduced to zero again "
                         "after Hessian reset. BFGS iteration has converged to "
                         "the requested precision." << std::endl;
-                for (std::size_t i = 0; i < n; ++i) {
-                    mpfr_set(x_new[i], x[i], rnd);
-                }
+                x_new = x;
                 mpfr_set(x_new_norm, x_norm, rnd);
                 mpfr_set(func_new, func, rnd);
-                for (std::size_t i = 0; i < n; ++i) {
-                    mpfr_set(grad_new[i], grad[i], rnd);
-                }
+                grad_new = grad;
                 mpfr_set(grad_new_norm, grad_norm, rnd);
-                for (std::size_t i = 0; i < n; ++i) {
-                    mpfr_set_zero(grad_delta[i], 0);
-                }
+                grad_delta.set_zero();
                 return;
             }
         }
         // Take a step using the computed step direction and step size.
-        for (std::size_t i = 0; i < n; ++i) {
+        for (std::size_t i = 0; i < NUM_VARS; ++i) {
             mpfr_fma(x_new[i], step_size_new, step_dir[i], x[i], rnd);
         }
         nan_check("while taking BFGS step");
-        l2_norm(x_new_norm, n, x_new, rnd);
+        x_new.norm(x_new_norm, rnd);
         nan_check("while evaluating norm of new point");
         // Evaluate the objective function at the new point.
-        objective_function(func_new, x_new, prec, rnd);
+        objective_function(func_new, x_new.data(), prec, rnd);
         nan_check("during evaluation of objective function at new point");
         // Ensure that the objective function has decreased.
         if (!objective_function_has_decreased()) {
@@ -415,7 +302,7 @@ public: // ============================================================ MUTATORS
                         "step size. Re-trying line search with smaller "
                         "initial step size." << std::endl;
                 mpfr_swap(step_size, step_size_new);
-                quadratic_line_search(step_size_new, x_new, grad_new, n,
+                quadratic_line_search(step_size_new, x_new, grad_new,
                                       x, func, step_size, step_dir, prec, rnd);
                 nan_check("during quadratic line search");
             } else {
@@ -427,26 +314,24 @@ public: // ============================================================ MUTATORS
             goto after_line_search;
         }
         // Evaluate the gradient vector at the new point.
-        objective_gradient(grad_new, n, x_new, prec, rnd);
+        objective_gradient(grad_new.data(), x_new.data(), prec, rnd);
         nan_check("during evaluation of objective gradient at new point");
-        l2_norm(grad_new_norm, n, grad_new, rnd);
+        grad_new.norm(grad_new_norm, rnd);
         nan_check("while evaluating norm of objective gradient");
         // Use difference between previous and current gradient vectors to
         // perform a rank-one update of the approximate inverse Hessian matrix.
-        for (std::size_t i = 0; i < n; ++i) {
-            mpfr_sub(grad_delta[i], grad_new[i], grad[i], rnd);
-        }
+        grad_delta.set_sub(grad_new, grad, rnd);
         nan_check("while subtracting consecutive gradient vectors");
-        update_inverse_hessian(hess_inv, n,
+        update_inverse_hessian(hess_inv, NUM_VARS,
                                grad_delta, step_size_new, step_dir, prec, rnd);
         nan_check("while updating approximate inverse Hessian");
     }
 
     void shift() {
-        std::swap(x, x_new);
+        x.swap(x_new);
         mpfr_set(x_norm, x_new_norm, rnd);
         mpfr_set(func, func_new, rnd);
-        std::swap(grad, grad_new);
+        grad.swap(grad_new);
         mpfr_set(grad_norm, grad_new_norm, rnd);
         mpfr_set(step_size, step_size_new, rnd);
         ++iter_count;

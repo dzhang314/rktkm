@@ -2,20 +2,12 @@
 
 // RKTK headers
 #include "objective_function.hpp" // for objective_function
-#include "linalg_subroutines.hpp" // for matrix_vector_multiply
-
-static inline void dot(mpfr_t dst, std::size_t n,
-                       mpfr_t *v, mpfr_t *w, mpfr_rnd_t rnd) {
-    mpfr_mul(dst, v[0], w[0], rnd);
-    for (std::size_t i = 1; i < n; ++i) {
-        mpfr_fma(dst, v[i], w[i], dst, rnd);
-    }
-}
 
 void quadratic_line_search(mpfr_t optimal_step_size,
-                           mpfr_t *temp1, mpfr_t *temp2, std::size_t n,
-                           mpfr_t *x, mpfr_t f,
-                           mpfr_t initial_step_size, mpfr_t *step_direction,
+                           rktk::MPFRVector &temp1, rktk::MPFRVector &temp2,
+                           const rktk::MPFRVector &x, mpfr_t f,
+                           mpfr_t initial_step_size,
+                           const rktk::MPFRVector &step_direction,
                            mpfr_prec_t prec, mpfr_rnd_t rnd) {
     static bool initialized = false;
     static mpfr_t step_size, next_step_size, f1, f2, numer, denom;
@@ -29,28 +21,24 @@ void quadratic_line_search(mpfr_t optimal_step_size,
         initialized = true;
     }
     mpfr_set(step_size, initial_step_size, rnd);
-    for (std::size_t i = 0; i < n; ++i) {
+    for (std::size_t i = 0; i < NUM_VARS; ++i) {
         mpfr_fma(temp1[i], step_size, step_direction[i], x[i], rnd);
     }
-    objective_function(f1, temp1, prec, rnd);
+    objective_function(f1, temp1.data(), prec, rnd);
     if (mpfr_less_p(f1, f)) {
         int num_increases = 0;
         while (true) {
             mpfr_mul_2ui(next_step_size, step_size, 1, rnd);
-            for (std::size_t i = 0; i < n; ++i) {
+            for (std::size_t i = 0; i < NUM_VARS; ++i) {
                 mpfr_fma(temp2[i],
                          next_step_size, step_direction[i], x[i], rnd);
             }
-            objective_function(f2, temp2, prec, rnd);
+            objective_function(f2, temp2.data(), prec, rnd);
             if (mpfr_greaterequal_p(f2, f1)) {
                 break;
             } else {
                 mpfr_swap(step_size, next_step_size);
-                {
-                    mpfr_t *const temp_swap = temp1;
-                    temp1 = temp2;
-                    temp2 = temp_swap;
-                }
+                temp1.swap(temp2);
                 mpfr_swap(f1, f2);
                 ++num_increases;
                 if (num_increases >= 4) {
@@ -78,15 +66,15 @@ void quadratic_line_search(mpfr_t optimal_step_size,
     } else {
         while (true) {
             mpfr_div_2ui(next_step_size, step_size, 1, rnd);
-            for (std::size_t i = 0; i < n; ++i) {
+            for (std::size_t i = 0; i < NUM_VARS; ++i) {
                 mpfr_fma(temp2[i],
                          next_step_size, step_direction[i], x[i], rnd);
             }
-            if (elementwise_equal(n, x, temp2)) {
+            if (x == temp2) {
                 mpfr_set_ui(optimal_step_size, 0, rnd);
                 return;
             }
-            objective_function(f2, temp2, prec, rnd);
+            objective_function(f2, temp2.data(), prec, rnd);
             if (mpfr_less_p(f2, f)) {
                 break;
             } else {
@@ -95,11 +83,7 @@ void quadratic_line_search(mpfr_t optimal_step_size,
                     mpfr_swap(optimal_step_size, step_size);
                     return;
                 }
-                {
-                    mpfr_t *const temp_swap = temp1;
-                    temp1 = temp2;
-                    temp2 = temp_swap;
-                }
+                temp1.swap(temp2);
                 mpfr_swap(f1, f2);
             }
         }
@@ -120,15 +104,23 @@ void quadratic_line_search(mpfr_t optimal_step_size,
     }
 }
 
-void update_inverse_hessian(mpfr_t *inv_hess, std::size_t n,
-                            mpfr_t *delta_gradient,
-                            mpfr_t step_size, mpfr_t *step_direction,
+static inline void dot(mpfr_t dst, std::size_t n,
+                       const mpfr_t *v, const mpfr_t *w, mpfr_rnd_t rnd) {
+    mpfr_mul(dst, v[0], w[0], rnd);
+    for (std::size_t i = 1; i < n; ++i) {
+        mpfr_fma(dst, v[i], w[i], dst, rnd);
+    }
+}
+
+void update_inverse_hessian(rktk::MPFRMatrix &inv_hess, std::size_t n,
+                            const rktk::MPFRVector &delta_gradient,
+                            mpfr_t step_size,
+                            const rktk::MPFRVector &step_direction,
                             mpfr_prec_t prec, mpfr_rnd_t rnd) {
-    static mpfr_t *kappa = nullptr;
+    static rktk::MPFRVector *kappa = nullptr;
     static mpfr_t theta, lambda, sigma, beta, alpha;
     if (kappa == nullptr) {
-        kappa = new mpfr_t[n];
-        for (std::size_t i = 0; i < n; ++i) { mpfr_init2(kappa[i], prec); }
+        kappa = new rktk::MPFRVector(prec);
         mpfr_init2(theta, prec);
         mpfr_init2(lambda, prec);
         mpfr_init2(sigma, prec);
@@ -136,11 +128,11 @@ void update_inverse_hessian(mpfr_t *inv_hess, std::size_t n,
         mpfr_init2(alpha, prec);
     }
     // nan_check("during initialization of inverse hessian update workspace");
-    matrix_vector_multiply(kappa, n, inv_hess, delta_gradient, rnd);
+    kappa->set_matrix_vector_multiply(inv_hess, delta_gradient, rnd);
     // nan_check("during evaluation of kappa");
-    dot(theta, n, delta_gradient, kappa, rnd);
+    dot(theta, n, delta_gradient.data(), kappa->data(), rnd);
     // nan_check("during evaluation of theta");
-    dot(lambda, n, delta_gradient, step_direction, rnd);
+    dot(lambda, n, delta_gradient.data(), step_direction.data(), rnd);
     mpfr_mul(lambda, lambda, step_size, rnd);
     // nan_check("during evaluation of lambda");
     mpfr_sqr(beta, lambda, rnd);
@@ -151,17 +143,17 @@ void update_inverse_hessian(mpfr_t *inv_hess, std::size_t n,
     mpfr_mul(beta, beta, sigma, rnd);
     mpfr_div_2ui(beta, beta, 1, rnd);
     for (std::size_t i = 0; i < n; ++i) {
-        mpfr_fms(kappa[i], beta, step_direction[i], kappa[i], rnd);
-        mpfr_neg(kappa[i], kappa[i], rnd);
+        mpfr_fms((*kappa)[i], beta, step_direction[i], (*kappa)[i], rnd);
+        mpfr_neg((*kappa)[i], (*kappa)[i], rnd);
     }
     mpfr_div(alpha, step_size, lambda, rnd);
     mpfr_neg(alpha, alpha, rnd);
     std::size_t k = 0;
     for (std::size_t i = 0; i < n; ++i) {
         for (std::size_t j = 0; j < n; ++j, ++k) {
-            mpfr_mul(beta, kappa[i], step_direction[j], rnd);
-            mpfr_fma(beta, step_direction[i], kappa[j], beta, rnd);
-            mpfr_fma(inv_hess[k], alpha, beta, inv_hess[k], rnd);
+            mpfr_mul(beta, (*kappa)[i], step_direction[j], rnd);
+            mpfr_fma(beta, step_direction[i], (*kappa)[j], beta, rnd);
+            mpfr_fma(inv_hess.data()[k], alpha, beta, inv_hess.data()[k], rnd);
         }
     }
 }

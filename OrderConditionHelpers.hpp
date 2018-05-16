@@ -32,17 +32,8 @@
  * double-precision and arbitrary-precision objective functions have been
  * implemented; other letters are reserved below for possible future expansion.
  *
- *     f - float
- *     d - double
- *     l - long double
  *     m - arbitrary precision (mpfr_t)
- *     p - indexed float
- *     q - indexed double
- *     r - indexed long double
  *     s - indexed arbitrary precision (mpfr_t)
- *     w - dual float
- *     x - dual double
- *     y - dual long double
  *     z - dual arbitrary precision (mpfr_t)
  */
 

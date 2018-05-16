@@ -66,7 +66,7 @@ int main(int argc, char **argv) {
     const SearchMode mode = (argc >= 5)
                             ? SearchMode::REFINE
                             : SearchMode::EXPLORE;
-    BFGSOptimizer optimizer(NUM_VARS, prec, MPFR_RNDN);
+    BFGSOptimizer optimizer(prec, MPFR_RNDN);
     if (mode == SearchMode::REFINE) {
         optimizer.initialize_from_file(std::string(argv[4]));
     } else {
