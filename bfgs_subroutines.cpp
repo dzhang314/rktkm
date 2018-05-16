@@ -3,111 +3,11 @@
 // RKTK headers
 #include "objective_function.hpp" // for objective_function
 
-void quadratic_line_search(mpfr_t optimal_step_size,
-                           rktk::MPFRVector &temp1, rktk::MPFRVector &temp2,
-                           const rktk::MPFRVector &x, mpfr_t f,
-                           mpfr_t initial_step_size,
-                           const rktk::MPFRVector &step_direction,
-                           mpfr_prec_t prec, mpfr_rnd_t rnd) {
-    static bool initialized = false;
-    static mpfr_t step_size, next_step_size, f1, f2, numer, denom;
-    if (!initialized) {
-        mpfr_init2(step_size, prec);
-        mpfr_init2(next_step_size, prec);
-        mpfr_init2(f1, prec);
-        mpfr_init2(f2, prec);
-        mpfr_init2(numer, prec);
-        mpfr_init2(denom, prec);
-        initialized = true;
-    }
-    mpfr_set(step_size, initial_step_size, rnd);
-    for (std::size_t i = 0; i < NUM_VARS; ++i) {
-        mpfr_fma(temp1[i], step_size, step_direction[i], x[i], rnd);
-    }
-    objective_function(f1, temp1.data(), prec, rnd);
-    if (mpfr_less_p(f1, f)) {
-        int num_increases = 0;
-        while (true) {
-            mpfr_mul_2ui(next_step_size, step_size, 1, rnd);
-            for (std::size_t i = 0; i < NUM_VARS; ++i) {
-                mpfr_fma(temp2[i],
-                         next_step_size, step_direction[i], x[i], rnd);
-            }
-            objective_function(f2, temp2.data(), prec, rnd);
-            if (mpfr_greaterequal_p(f2, f1)) {
-                break;
-            } else {
-                mpfr_swap(step_size, next_step_size);
-                temp1.swap(temp2);
-                mpfr_swap(f1, f2);
-                ++num_increases;
-                if (num_increases >= 4) {
-                    mpfr_swap(optimal_step_size, step_size);
-                    return;
-                }
-            }
-        }
-
-        mpfr_mul_2ui(denom, f1, 1, rnd);    // denom = 2*f1
-        mpfr_sub(denom, denom, f2, rnd);    // denom = 2*f1 - f2
-        mpfr_sub(denom, denom, f, rnd);     // denom = 2*f1 - f2 - f
-        mpfr_mul_2ui(numer, f1, 2, rnd);    // numer = 4*f1
-        mpfr_sub(numer, numer, f2, rnd);    // numer = 4*f1 - f2
-        mpfr_mul_ui(f1, f, 3, rnd);         // temporarily store f1' = 3*f
-        mpfr_sub(numer, numer, f1, rnd);    // numer = 4*f1 - f2 - 3*f
-        mpfr_div_2ui(optimal_step_size, step_size, 1, rnd);
-        mpfr_mul(optimal_step_size, optimal_step_size, numer, rnd);
-        mpfr_div(optimal_step_size, optimal_step_size, denom, rnd);
-        mpfr_mul_2ui(f2, step_size, 1, rnd);
-        if ((mpfr_sgn(optimal_step_size) <= 0) ||
-            !mpfr_less_p(optimal_step_size, f2)) {
-            mpfr_swap(optimal_step_size, step_size);
-        }
-    } else {
-        while (true) {
-            mpfr_div_2ui(next_step_size, step_size, 1, rnd);
-            for (std::size_t i = 0; i < NUM_VARS; ++i) {
-                mpfr_fma(temp2[i],
-                         next_step_size, step_direction[i], x[i], rnd);
-            }
-            if (x == temp2) {
-                mpfr_set_ui(optimal_step_size, 0, rnd);
-                return;
-            }
-            objective_function(f2, temp2.data(), prec, rnd);
-            if (mpfr_less_p(f2, f)) {
-                break;
-            } else {
-                mpfr_swap(step_size, next_step_size);
-                if (mpfr_zero_p(step_size)) {
-                    mpfr_swap(optimal_step_size, step_size);
-                    return;
-                }
-                temp1.swap(temp2);
-                mpfr_swap(f1, f2);
-            }
-        }
-        mpfr_mul_2ui(f2, f2, 1, rnd);
-        mpfr_sub(denom, f1, f2, rnd);
-        mpfr_add(denom, denom, f, rnd);
-        mpfr_mul_2ui(f2, f2, 1, rnd);
-        mpfr_sub(numer, f1, f2, rnd);
-        mpfr_mul_ui(f1, f, 3, rnd);
-        mpfr_add(numer, numer, f1, rnd);
-        mpfr_div_2ui(optimal_step_size, step_size, 2, rnd);
-        mpfr_mul(optimal_step_size, optimal_step_size, numer, rnd);
-        mpfr_div(optimal_step_size, optimal_step_size, denom, rnd);
-        if ((mpfr_sgn(optimal_step_size) <= 0) ||
-            !mpfr_less_p(optimal_step_size, step_size)) {
-            mpfr_div_2ui(optimal_step_size, step_size, 1, rnd);
-        }
-    }
-}
-
-static inline void dot(mpfr_t dst, std::size_t n,
-                       const mpfr_t *v, const mpfr_t *w, mpfr_rnd_t rnd) {
+static inline void dot(mpfr_t dst,
+                       const rktk::MPFRVector &v, const rktk::MPFRVector &w,
+                       mpfr_rnd_t rnd) {
     mpfr_mul(dst, v[0], w[0], rnd);
-    for (std::size_t i = 1; i < n; ++i) {
+    for (std::size_t i = 1; i < NUM_VARS; ++i) {
         mpfr_fma(dst, v[i], w[i], dst, rnd);
     }
 }
@@ -130,9 +30,9 @@ void update_inverse_hessian(rktk::MPFRMatrix &inv_hess, std::size_t n,
     // nan_check("during initialization of inverse hessian update workspace");
     kappa->set_matrix_vector_multiply(inv_hess, delta_gradient, rnd);
     // nan_check("during evaluation of kappa");
-    dot(theta, n, delta_gradient.data(), kappa->data(), rnd);
+    dot(theta, delta_gradient, *kappa, rnd);
     // nan_check("during evaluation of theta");
-    dot(lambda, n, delta_gradient.data(), step_direction.data(), rnd);
+    dot(lambda, delta_gradient, step_direction, rnd);
     mpfr_mul(lambda, lambda, step_size, rnd);
     // nan_check("during evaluation of lambda");
     mpfr_sqr(beta, lambda, rnd);

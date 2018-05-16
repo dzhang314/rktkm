@@ -14,6 +14,5 @@ mkdir -p bin
 
 g++-7 -std=c++17 $GCC_FLAGS -c objective_function.cpp -o obj/objective_function.o
 g++-7 -std=c++17 $GCC_FLAGS -c bfgs_subroutines.cpp -o obj/bfgs_subroutines.o
-g++-7 -std=c++17 $GCC_FLAGS -c OrderConditionHelpers.cpp -o obj/OrderConditionHelpers.o
 g++-7 -std=c++17 $GCC_OPT_FLAGS rksearch_main.cpp obj/*.o -o bin/$EXE_NAME -lmpfr -lgmp
 rm obj/*.o

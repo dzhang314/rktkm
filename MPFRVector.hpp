@@ -5,7 +5,7 @@
 #include <cstddef> // for std::size_t
 #include <utility> // for std::swap
 
-// MPFR multiprecision library headers
+// GNU MPFR multiprecision library headers
 #include <mpfr.h>
 
 // Project-specific headers
@@ -98,6 +98,13 @@ namespace rktk {
         void set_sub(const MPFRVector &x, const MPFRVector &y, mpfr_rnd_t rnd) {
             for (std::size_t i = 0; i < NUM_VARS; ++i) {
                 mpfr_sub(entries[i], x.entries[i], y.entries[i], rnd);
+            }
+        }
+
+        void set_axpy(mpfr_t a, const MPFRVector &x, const MPFRVector &y,
+                      mpfr_rnd_t rnd) {
+            for (std::size_t i = 0; i < NUM_VARS; ++i) {
+                mpfr_fma(entries[i], a, x.entries[i], y.entries[i], rnd);
             }
         }
 

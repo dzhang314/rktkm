@@ -1,6 +1,7 @@
 #ifndef RKTK_FILENAME_HELPERS_HPP_INCLUDED
 #define RKTK_FILENAME_HELPERS_HPP_INCLUDED
 
+// C++ standard library headers
 #include <cstddef> // for std::size_t
 #include <cstdint> // for std::uint64_t
 #include <ios> // for std::dec and std::hex

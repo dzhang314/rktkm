@@ -4,7 +4,7 @@
 // C++ standard library headers
 #include <cstddef> // for std::size_t
 
-// GNU MPFR library headers
+// GNU MPFR multiprecision library headers
 #include <mpfr.h>
 
 #define NUM_VARS 136

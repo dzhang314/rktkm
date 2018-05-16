@@ -1,11 +1,14 @@
 #ifndef RKTK_MPFR_MATRIX_HPP_INCLUDED
 #define RKTK_MPFR_MATRIX_HPP_INCLUDED
 
+// C++ standard library headers
 #include <cstddef> // for std::size_t
 #include <utility> // for std::swap
 
+// GNU MPFR multiprecision library headers
 #include <mpfr.h>
 
+// Project-specific headers
 #include "objective_function.hpp"
 
 namespace rktk {

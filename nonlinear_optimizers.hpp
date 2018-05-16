@@ -19,6 +19,7 @@
 #include "FilenameHelpers.hpp"
 #include "MPFRMatrix.hpp"
 #include "MPFRVector.hpp"
+#include "QuadraticLineSearcher.hpp"
 
 static inline void nan_check(const char *msg) {
     if (mpfr_nanflag_p()) {
@@ -28,6 +29,10 @@ static inline void nan_check(const char *msg) {
     }
 }
 
+enum class StepType {
+    BFGS, GRAD, NONE
+};
+
 class BFGSOptimizer {
 
     typedef std::numeric_limits<std::uint64_t> uint64_limits;
@@ -36,24 +41,14 @@ private: // ======================================================= DATA MEMBERS
 
     const mpfr_prec_t prec;
     const mpfr_rnd_t rnd;
+    StepType step_type;
 
-    rktk::MPFRVector x;
-    rktk::MPFRVector x_new;
-    mpfr_t x_norm;
-    mpfr_t x_new_norm;
+    rktk::MPFRVector x, x_new, grad, grad_new, grad_delta;
+    mpfr_t x_norm, x_new_norm, grad_norm, grad_new_norm;
 
-    mpfr_t func;
-    mpfr_t func_new;
-
-    rktk::MPFRVector grad;
-    rktk::MPFRVector grad_new;
-    mpfr_t grad_norm;
-    mpfr_t grad_new_norm;
-    rktk::MPFRVector grad_delta;
-
-    mpfr_t step_size;
-    mpfr_t step_size_new;
-    rktk::MPFRVector step_dir;
+    mpfr_t func, func_grad, func_new;
+    mpfr_t step_size, step_size_grad, step_size_new;
+    rktk::MPFRVector grad_dir, step_dir;
 
     rktk::MPFRMatrix hess_inv;
 
@@ -70,16 +65,16 @@ public: // ======================================================== CONSTRUCTORS
     explicit BFGSOptimizer(mpfr_prec_t numeric_precision,
                            mpfr_rnd_t rounding_mode) :
             prec(numeric_precision), rnd(rounding_mode),
+            step_type(StepType::NONE),
             x(prec), x_new(prec), grad(prec), grad_new(prec),
-            grad_delta(prec), step_dir(prec), hess_inv(prec) {
-        mpfr_init2(x_norm, prec);
-        mpfr_init2(x_new_norm, prec);
-        mpfr_init2(func, prec);
-        mpfr_init2(func_new, prec);
-        mpfr_init2(grad_norm, prec);
-        mpfr_init2(grad_new_norm, prec);
-        mpfr_init2(step_size, prec);
-        mpfr_init2(step_size_new, prec);
+            grad_delta(prec), grad_dir(prec), step_dir(prec),
+            hess_inv(prec) {
+        mpfr_inits2(
+                prec,
+                x_norm, x_new_norm, grad_norm, grad_new_norm,
+                func, func_grad, func_new,
+                step_size, step_size_grad, step_size_new,
+                static_cast<mpfr_ptr>(nullptr));
     }
 
     // explicitly disallow copy construction
@@ -91,14 +86,11 @@ public: // ======================================================== CONSTRUCTORS
 public: // ========================================================== DESTRUCTOR
 
     ~BFGSOptimizer() {
-        mpfr_clear(x_norm);
-        mpfr_clear(x_new_norm);
-        mpfr_clear(func);
-        mpfr_clear(func_new);
-        mpfr_clear(grad_norm);
-        mpfr_clear(grad_new_norm);
-        mpfr_clear(step_size);
-        mpfr_clear(step_size_new);
+        mpfr_clears(
+                x_norm, x_new_norm, grad_norm, grad_new_norm,
+                func, func_grad, func_new,
+                step_size, step_size_grad, step_size_new,
+                static_cast<mpfr_ptr>(nullptr));
     }
 
 public: // ======================================================== INITIALIZERS
@@ -191,9 +183,20 @@ public: // =========================================================== ACCESSORS
             print_precision += 2;
         }
         mpfr_printf(
-                "%012zu | %+.*RNe | %+.*RNe | %+.*RNe | %+.*RNe\n", iter_count,
+                "%012zu | %+.*RNe | %+.*RNe | %+.*RNe | %+.*RNe | ", iter_count,
                 print_precision, func, print_precision, grad_norm,
                 print_precision, step_size, print_precision, x_norm);
+        switch (step_type) {
+            case StepType::BFGS:
+                std::cout << "BFGS" << std::endl;
+                break;
+            case StepType::GRAD:
+                std::cout << "GRAD" << std::endl;
+                break;
+            case StepType::NONE:
+                std::cout << "NONE" << std::endl;
+                break;
+        }
     }
 
     void write_to_file() {
@@ -250,69 +253,43 @@ public: // ============================================================ MUTATORS
         // Compute a quasi-Newton step direction by multiplying the approximate
         // inverse Hessian matrix by the gradient vector. Negate the result to
         // obtain a direction of local decrease (rather than increase).
+        grad_dir = grad;
+        grad_dir.negate_and_normalize(func_new, rnd);
         step_dir.set_matrix_vector_multiply(hess_inv, grad, rnd);
         nan_check("during calculation of BFGS step direction");
         // Normalize the step direction to ensure consistency of step sizes.
         step_dir.negate_and_normalize(func_new, rnd);
         nan_check("during normalization of BFGS step direction");
         // Compute a near-optimal step size via quadratic line search.
-        quadratic_line_search(step_size_new, x_new, grad_new,
-                              x, func, step_size, step_dir, prec, rnd);
+        {
+            rktk::QuadraticLineSearcher grad_searcher(
+                    func_grad, step_size_grad, x, func, grad_dir, prec);
+            grad_searcher.search(grad_new, step_size, rnd);
+            rktk::QuadraticLineSearcher bfgs_searcher(
+                    func_new, step_size_new, x, func, step_dir, prec);
+            bfgs_searcher.search(grad_new, step_size, rnd);
+            if (mpfr_less_p(func_grad, func_new)) {
+                step_dir = grad_dir;
+                hess_inv.set_identity_matrix();
+                mpfr_set(func_new, func_grad, rnd);
+                mpfr_set(step_size_new, step_size_grad, rnd);
+                step_type = StepType::GRAD;
+            } else {
+                step_type = StepType::BFGS;
+            }
+        }
         nan_check("during quadratic line search");
-        after_line_search:
         if (mpfr_zero_p(step_size_new)) {
             print(print_precision);
-            std::cout << "NOTICE: Optimal step size reduced to zero. "
-                    "Resetting approximate inverse Hessian matrix to the "
-                    "identity matrix and re-trying line search." << std::endl;
-            hess_inv.set_identity_matrix();
-            step_dir.set_matrix_vector_multiply(hess_inv, grad, rnd);
-            step_dir.negate_and_normalize(func_new, rnd);
-            quadratic_line_search(step_size_new, x_new, grad_new,
-                                  x, func, step_size, step_dir, prec, rnd);
-            if (mpfr_zero_p(step_size_new)) {
-                std::cout << "NOTICE: Optimal step size reduced to zero again "
-                        "after Hessian reset. BFGS iteration has converged to "
-                        "the requested precision." << std::endl;
-                x_new = x;
-                mpfr_set(x_new_norm, x_norm, rnd);
-                mpfr_set(func_new, func, rnd);
-                grad_new = grad;
-                mpfr_set(grad_new_norm, grad_norm, rnd);
-                grad_delta.set_zero();
-                return;
-            }
+            std::cout << "NOTICE: Optimal step size reduced to zero. BFGS "
+                         "iteration has converged to the requested precision."
+                      << std::endl;
+            return;
         }
         // Take a step using the computed step direction and step size.
-        for (std::size_t i = 0; i < NUM_VARS; ++i) {
-            mpfr_fma(x_new[i], step_size_new, step_dir[i], x[i], rnd);
-        }
-        nan_check("while taking BFGS step");
+        x_new.set_axpy(step_size_new, step_dir, x, rnd);
         x_new.norm(x_new_norm, rnd);
-        nan_check("while evaluating norm of new point");
-        // Evaluate the objective function at the new point.
         objective_function(func_new, x_new.data(), prec, rnd);
-        nan_check("during evaluation of objective function at new point");
-        // Ensure that the objective function has decreased.
-        if (!objective_function_has_decreased()) {
-            print(print_precision);
-            if (mpfr_less_p(step_size_new, step_size)) {
-                std::cout << "NOTICE: BFGS step failed to decrease "
-                        "objective function value after decreasing "
-                        "step size. Re-trying line search with smaller "
-                        "initial step size." << std::endl;
-                mpfr_swap(step_size, step_size_new);
-                quadratic_line_search(step_size_new, x_new, grad_new,
-                                      x, func, step_size, step_dir, prec, rnd);
-                nan_check("during quadratic line search");
-            } else {
-                std::cout << "NOTICE: BFGS step failed to decrease objective "
-                        "function after increasing step size. Reverting "
-                        "to smaller original step size." << std::endl;
-                mpfr_set(step_size_new, step_size, rnd);
-            }
-            goto after_line_search;
-        }
         // Evaluate the gradient vector at the new point.
         objective_gradient(grad_new.data(), x_new.data(), prec, rnd);
         nan_check("during evaluation of objective gradient at new point");
