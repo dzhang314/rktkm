@@ -10,7 +10,7 @@
 // Project-specific headers
 #include "MPFRVector.hpp"
 
-void update_inverse_hessian(rktk::MPFRMatrix &inv_hess, std::size_t n,
+void update_inverse_hessian(rktk::MPFRMatrix &inv_hess,
                             const rktk::MPFRVector &delta_gradient,
                             mpfr_t step_size,
                             const rktk::MPFRVector &step_direction,

@@ -299,7 +299,7 @@ public: // ============================================================ MUTATORS
         // perform a rank-one update of the approximate inverse Hessian matrix.
         grad_delta.set_sub(grad_new, grad, rnd);
         nan_check("while subtracting consecutive gradient vectors");
-        update_inverse_hessian(hess_inv, NUM_VARS,
+        update_inverse_hessian(hess_inv,
                                grad_delta, step_size_new, step_dir, prec, rnd);
         nan_check("while updating approximate inverse Hessian");
     }

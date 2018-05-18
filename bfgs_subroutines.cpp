@@ -12,7 +12,7 @@ static inline void dot(mpfr_t dst,
     }
 }
 
-void update_inverse_hessian(rktk::MPFRMatrix &inv_hess, std::size_t n,
+void update_inverse_hessian(rktk::MPFRMatrix &inv_hess,
                             const rktk::MPFRVector &delta_gradient,
                             mpfr_t step_size,
                             const rktk::MPFRVector &step_direction,
@@ -42,15 +42,15 @@ void update_inverse_hessian(rktk::MPFRMatrix &inv_hess, std::size_t n,
     mpfr_mul(beta, step_size, lambda, rnd);
     mpfr_mul(beta, beta, sigma, rnd);
     mpfr_div_2ui(beta, beta, 1, rnd);
-    for (std::size_t i = 0; i < n; ++i) {
+    for (std::size_t i = 0; i < NUM_VARS; ++i) {
         mpfr_fms((*kappa)[i], beta, step_direction[i], (*kappa)[i], rnd);
         mpfr_neg((*kappa)[i], (*kappa)[i], rnd);
     }
     mpfr_div(alpha, step_size, lambda, rnd);
     mpfr_neg(alpha, alpha, rnd);
     std::size_t k = 0;
-    for (std::size_t i = 0; i < n; ++i) {
-        for (std::size_t j = 0; j < n; ++j, ++k) {
+    for (std::size_t i = 0; i < NUM_VARS; ++i) {
+        for (std::size_t j = 0; j < NUM_VARS; ++j, ++k) {
             mpfr_mul(beta, (*kappa)[i], step_direction[j], rnd);
             mpfr_fma(beta, step_direction[i], (*kappa)[j], beta, rnd);
             mpfr_fma(inv_hess.data()[k], alpha, beta, inv_hess.data()[k], rnd);
