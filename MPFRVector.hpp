@@ -95,6 +95,12 @@ namespace rktk {
             scale(tmp, rnd);
         }
 
+        void set_add(const MPFRVector &x, const MPFRVector &y, mpfr_rnd_t rnd) {
+            for (std::size_t i = 0; i < NUM_VARS; ++i) {
+                mpfr_add(entries[i], x.entries[i], y.entries[i], rnd);
+            }
+        }
+
         void set_sub(const MPFRVector &x, const MPFRVector &y, mpfr_rnd_t rnd) {
             for (std::size_t i = 0; i < NUM_VARS; ++i) {
                 mpfr_sub(entries[i], x.entries[i], y.entries[i], rnd);
@@ -105,6 +111,13 @@ namespace rktk {
                       mpfr_rnd_t rnd) {
             for (std::size_t i = 0; i < NUM_VARS; ++i) {
                 mpfr_fma(entries[i], a, x.entries[i], y.entries[i], rnd);
+            }
+        }
+
+        void set_axmy(mpfr_t a, const MPFRVector &x, const MPFRVector &y,
+                      mpfr_rnd_t rnd) {
+            for (std::size_t i = 0; i < NUM_VARS; ++i) {
+                mpfr_fms(entries[i], a, x.entries[i], y.entries[i], rnd);
             }
         }
 

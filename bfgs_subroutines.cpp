@@ -48,12 +48,58 @@ void update_inverse_hessian(rktk::MPFRMatrix &inv_hess,
     }
     mpfr_div(alpha, step_size, lambda, rnd);
     mpfr_neg(alpha, alpha, rnd);
-    std::size_t k = 0;
-    for (std::size_t i = 0; i < NUM_VARS; ++i) {
+    for (std::size_t i = 0, k = 0; i < NUM_VARS; ++i) {
         for (std::size_t j = 0; j < NUM_VARS; ++j, ++k) {
             mpfr_mul(beta, (*kappa)[i], step_direction[j], rnd);
             mpfr_fma(beta, step_direction[i], (*kappa)[j], beta, rnd);
             mpfr_fma(inv_hess.data()[k], alpha, beta, inv_hess.data()[k], rnd);
+        }
+    }
+}
+
+void update_inverse_hessian_mbfgst(
+        rktk::MPFRMatrix &inv_hess,
+        mpfr_t func, mpfr_t func_new,
+        const rktk::MPFRVector &grad, const rktk::MPFRVector &grad_new,
+        const rktk::MPFRVector &delta_gradient,
+        mpfr_t step_size,
+        const rktk::MPFRVector &step_direction,
+        mpfr_prec_t prec, mpfr_rnd_t rnd) {
+    static rktk::MPFRVector *w = nullptr;
+    static mpfr_t phi, phi_0, t0, t1, t2, t3, beta, rho;
+    if (w == nullptr) {
+        w = new rktk::MPFRVector(prec);
+        mpfr_inits2(prec,
+                    phi, phi_0, t0, t1, t2, t3, beta, rho,
+                    static_cast<mpfr_ptr>(nullptr));
+    }
+    // nan_check("during initialization of inverse hessian update workspace");
+    mpfr_sub(phi, func, func_new, rnd);
+    mpfr_mul_2si(phi, phi, +2, rnd);
+    // phi = 4 * (func - func_new);
+    w->set_add(grad, grad_new, rnd);
+    dot(phi_0, *w, step_direction, rnd);
+    mpfr_mul(phi_0, step_size, phi_0, rnd);
+    mpfr_mul_2si(phi_0, phi_0, +1, rnd);
+    // phi_0 = 2 * step_size * dot(grad + grad_new, step_direction);
+    mpfr_add(phi, phi, phi_0, rnd);
+    // phi += phi_0; calculation of phi completed.
+    w->set_matrix_vector_multiply(inv_hess, delta_gradient, rnd);
+    dot(t0, step_direction, delta_gradient, rnd);
+    mpfr_si_div(t1, +1, t0, rnd);
+    dot(t2, delta_gradient, *w, rnd);
+    mpfr_div(rho, t1, step_size, rnd);
+    mpfr_mul(beta, phi, rho, rnd);
+    mpfr_add_si(beta, beta, +1, rnd);
+    mpfr_div(t3, step_size, beta, rnd);
+    mpfr_fma(t3, t1, t2, t3, rnd);
+    mpfr_div_2si(t3, t3, +1, rnd);
+    w->set_axmy(t3, step_direction, *w, rnd);
+    for (std::size_t i = 0, k = 0; i < NUM_VARS; ++i) {
+        for (std::size_t j = 0; j < NUM_VARS; ++j, ++k) {
+            mpfr_mul(t0, (*w)[i], step_direction[j], rnd);
+            mpfr_fma(t0, step_direction[i], (*w)[j], t0, rnd);
+            mpfr_fma(inv_hess.data()[k], t1, t0, inv_hess.data()[k], rnd);
         }
     }
 }

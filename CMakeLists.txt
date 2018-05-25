@@ -11,3 +11,5 @@ add_executable(rktkm
         objective_function.hpp
         OrderConditionHelpers.hpp
         rksearch_main.cpp MPFRVector.hpp MPFRMatrix.hpp FilenameHelpers.hpp QuadraticLineSearcher.hpp)
+
+target_link_libraries(rktkm mpfr gmp)
