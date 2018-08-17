@@ -8,7 +8,7 @@
 #include <mpfr.h>
 
 // Project-specific headers
-#include "MPFRVector.hpp"
+#include <dznl/MPFRVector.hpp>
 
 /*
  * The following functions are helper subroutines used in the calculation

@@ -17,8 +17,9 @@
 #include "objective_function.hpp"
 #include "bfgs_subroutines.hpp"
 #include "FilenameHelpers.hpp"
-#include "MPFRMatrix.hpp"
-#include "MPFRVector.hpp"
+
+#include <dznl/MPFRMatrix.hpp>
+#include <dznl/MPFRVector.hpp>
 #include "QuadraticLineSearcher.hpp"
 
 static inline void nan_check(const char *msg) {
@@ -43,14 +44,14 @@ private: // ======================================================= DATA MEMBERS
     const mpfr_rnd_t rnd;
     StepType step_type;
 
-    rktk::MPFRVector x, x_new, grad, grad_new, grad_delta;
+    dznl::MPFRVector x, x_new, grad, grad_new, grad_delta;
     mpfr_t x_norm, x_new_norm, grad_norm, grad_new_norm;
 
     mpfr_t func, func_grad, func_new;
     mpfr_t step_size, step_size_grad, step_size_new;
-    rktk::MPFRVector grad_dir, step_dir;
+    dznl::MPFRVector grad_dir, step_dir;
 
-    rktk::MPFRMatrix hess_inv;
+    dznl::MPFRMatrix hess_inv;
 
     std::size_t iter_count = std::numeric_limits<std::size_t>::max();
 
@@ -66,9 +67,10 @@ public: // ======================================================== CONSTRUCTORS
                            mpfr_rnd_t rounding_mode) :
             prec(numeric_precision), rnd(rounding_mode),
             step_type(StepType::NONE),
-            x(prec), x_new(prec), grad(prec), grad_new(prec),
-            grad_delta(prec), grad_dir(prec), step_dir(prec),
-            hess_inv(prec) {
+            x(NUM_VARS, prec), x_new(NUM_VARS, prec),
+            grad(NUM_VARS, prec), grad_new(NUM_VARS, prec),
+            grad_delta(NUM_VARS, prec), grad_dir(NUM_VARS, prec),
+            step_dir(NUM_VARS, prec), hess_inv(NUM_VARS, prec) {
         mpfr_inits2(
                 prec,
                 x_norm, x_new_norm, grad_norm, grad_new_norm,
