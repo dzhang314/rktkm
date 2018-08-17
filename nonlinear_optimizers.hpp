@@ -20,7 +20,7 @@
 
 #include <dznl/MPFRMatrix.hpp>
 #include <dznl/MPFRVector.hpp>
-#include "QuadraticLineSearcher.hpp"
+#include <dznl/MPFRQuadraticLineSearcher.hpp>
 
 static inline void nan_check(const char *msg) {
     if (mpfr_nanflag_p()) {
@@ -264,12 +264,14 @@ public: // ============================================================ MUTATORS
         nan_check("during normalization of BFGS step direction");
         // Compute a near-optimal step size via quadratic line search.
         {
-            rktk::QuadraticLineSearcher grad_searcher(
-                    func_grad, step_size_grad, x, func, grad_dir, prec);
-            grad_searcher.search(grad_new, step_size, rnd);
-            rktk::QuadraticLineSearcher bfgs_searcher(
-                    func_new, step_size_new, x, func, step_dir, prec);
-            bfgs_searcher.search(grad_new, step_size, rnd);
+            dznl::MPFRQuadraticLineSearcher grad_searcher(
+                    func_grad, step_size_grad,
+                    objective_function, x, func, grad_dir, prec, rnd);
+            grad_searcher.search(step_size);
+            dznl::MPFRQuadraticLineSearcher bfgs_searcher(
+                    func_new, step_size_new,
+                    objective_function, x, func, step_dir, prec, rnd);
+            bfgs_searcher.search(step_size);
             if (mpfr_less_p(func_grad, func_new)) {
                 step_dir = grad_dir;
                 hess_inv.set_identity_matrix();
